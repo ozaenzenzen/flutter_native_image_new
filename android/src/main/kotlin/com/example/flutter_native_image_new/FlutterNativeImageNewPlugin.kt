@@ -45,6 +45,7 @@ class FlutterNativeImageNewPlugin : FlutterPlugin, MethodCallHandler {
             result.success("Android ${android.os.Build.VERSION.RELEASE}")
         } else if (call.method.equals("compressImage")) {
             val dataMap: Map<*, *> = call.arguments as Map<*, *>
+            println("dataMap $dataMap");
 
             val fileName: String = dataMap["file"] as String
             val resizePercentage: Int = dataMap["percentage"] as Int
@@ -59,7 +60,15 @@ class FlutterNativeImageNewPlugin : FlutterPlugin, MethodCallHandler {
                 return
             }
 
-            var bmp = BitmapFactory.decodeFile(fileName)
+            // var bmp = BitmapFactory.decodeFile(fileName)
+            println("file.absolutePath: ${file.path}")
+            var bmp = BitmapFactory.decodeFile(file.path)
+            println("bmp: $bmp")
+
+            if (bmp == null) {
+                result.error("bmp null", fileName, null)
+                return
+            }
             val bos = ByteArrayOutputStream()
 
             val newWidth =
@@ -172,8 +181,9 @@ class FlutterNativeImageNewPlugin : FlutterPlugin, MethodCallHandler {
                 val outputFileName = File.createTempFile(
                     getFilenameWithoutExtension(file) + "_cropped",
                     extension,
-                    context.getExternalCacheDir()
+                    context.externalCacheDir
                 ).path
+                println("outputFileName: $outputFileName")
 
 
                 outputStream = FileOutputStream(outputFileName)
@@ -210,48 +220,130 @@ class FlutterNativeImageNewPlugin : FlutterPlugin, MethodCallHandler {
 
     private fun copyExif(filePathOri: String, filePathDest: String) {
         try {
+            // Check if source file exists and is a supported format
+            val sourceFile = File(filePathOri)
+            val destFile = File(filePathDest)
+
+            if (!sourceFile.exists()) {
+                Log.w("NativeImagePluginNew", "Source file does not exist: $filePathOri")
+                return
+            }
+
+            if (!destFile.exists()) {
+                Log.w("NativeImagePluginNew", "Destination file does not exist: $filePathDest")
+                return
+            }
+
+            // Check if files are supported formats (JPEG, WEBP, etc.)
+            if (!isSupportedExifFormat(filePathOri) || !isSupportedExifFormat(filePathDest)) {
+                Log.w("NativeImagePluginNew", "Unsupported format for EXIF data. Source: $filePathOri, Dest: $filePathDest")
+                return
+            }
+
+            println("filePathOri: $filePathOri")
+            println("filePathDest: $filePathDest")
+
             val oldExif = ExifInterface(filePathOri)
             val newExif = ExifInterface(filePathDest)
 
-            val attributes: List<String> = mutableListOf(
-                "FNumber",
-                "ExposureTime",
-                "ISOSpeedRatings",
-                "GPSAltitude",
-                "GPSAltitudeRef",
-                "FocalLength",
-                "GPSDateStamp",
-                "WhiteBalance",
-                "GPSProcessingMethod",
-                "GPSTimeStamp",
-                "DateTime",
-                "Flash",
-                "GPSLatitude",
-                "GPSLatitudeRef",
-                "GPSLongitude",
-                "GPSLongitudeRef",
-                "Make",
-                "Model",
-                "Orientation"
+            val attributes = listOf(
+                ExifInterface.TAG_F_NUMBER,
+                ExifInterface.TAG_EXPOSURE_TIME,
+                ExifInterface.TAG_ISO_SPEED_RATINGS,
+                ExifInterface.TAG_GPS_ALTITUDE,
+                ExifInterface.TAG_GPS_ALTITUDE_REF,
+                ExifInterface.TAG_FOCAL_LENGTH,
+                ExifInterface.TAG_GPS_DATESTAMP,
+                ExifInterface.TAG_WHITE_BALANCE,
+                ExifInterface.TAG_GPS_PROCESSING_METHOD,
+                ExifInterface.TAG_GPS_TIMESTAMP,
+                ExifInterface.TAG_DATETIME,
+                ExifInterface.TAG_FLASH,
+                ExifInterface.TAG_GPS_LATITUDE,
+                ExifInterface.TAG_GPS_LATITUDE_REF,
+                ExifInterface.TAG_GPS_LONGITUDE,
+                ExifInterface.TAG_GPS_LONGITUDE_REF,
+                ExifInterface.TAG_MAKE,
+                ExifInterface.TAG_MODEL,
+                ExifInterface.TAG_ORIENTATION
             )
+
             for (attribute in attributes) {
                 setIfNotNull(oldExif, newExif, attribute)
             }
 
             newExif.saveAttributes()
+
+        } catch (ex: IOException) {
+            Log.e("NativeImagePluginNew", "IOException while copying EXIF data: ${ex.message}")
         } catch (ex: Exception) {
-            Log.e(
-                "NativeImagePluginNew",
-                "Error preserving Exif data on selected image: $ex"
-            )
+            Log.e("NativeImagePluginNew", "Error preserving EXIF data: ${ex.message}")
         }
     }
 
-    private fun setIfNotNull(oldExif: ExifInterface, newExif: ExifInterface, property: String) {
-        if (oldExif.getAttribute(property) != null) {
-            newExif.setAttribute(property, oldExif.getAttribute(property))
+    private fun isSupportedExifFormat(filePath: String): Boolean {
+        val extension = File(filePath).extension.lowercase()
+        return when (extension) {
+            "jpg", "jpeg", "webp", "dng", "cr2", "nef", "nrw", "arw", "rw2", "orf", "raf", "srw", "pef" -> true
+            else -> false
         }
     }
+
+    private fun setIfNotNull(oldExif: ExifInterface, newExif: ExifInterface, tag: String) {
+        try {
+            val value = oldExif.getAttribute(tag)
+            if (value != null) {
+                newExif.setAttribute(tag, value)
+            }
+        } catch (ex: Exception) {
+            Log.w("NativeImagePluginNew", "Could not copy EXIF attribute $tag: ${ex.message}")
+        }
+    }
+
+//    private fun copyExif(filePathOri: String, filePathDest: String) {
+//        try {
+//            val oldExif = ExifInterface(filePathOri)
+//            val newExif = ExifInterface(filePathDest)
+//
+//            val attributes: List<String> = mutableListOf(
+//                "FNumber",
+//                "ExposureTime",
+//                "ISOSpeedRatings",
+//                "GPSAltitude",
+//                "GPSAltitudeRef",
+//                "FocalLength",
+//                "GPSDateStamp",
+//                "WhiteBalance",
+//                "GPSProcessingMethod",
+//                "GPSTimeStamp",
+//                "DateTime",
+//                "Flash",
+//                "GPSLatitude",
+//                "GPSLatitudeRef",
+//                "GPSLongitude",
+//                "GPSLongitudeRef",
+//                "Make",
+//                "Model",
+//                "Orientation"
+//            )
+//            for (attribute in attributes) {
+//                setIfNotNull(oldExif, newExif, attribute)
+//            }
+//
+//            newExif.saveAttributes()
+//        } catch (ex: Exception) {
+//            Log.e(
+//                "NativeImagePluginNew",
+//                "Error preserving Exif data on selected image: $ex"
+//            )
+//        }
+//    }
+//
+//    private fun setIfNotNull(oldExif: ExifInterface, newExif: ExifInterface, property: String) {
+//        if (oldExif.getAttribute(property) != null) {
+//            newExif.setAttribute(property, oldExif.getAttribute(property))
+//        }
+//    }
 
     private fun pathComponent(filename: String): String {
         val i = filename.lastIndexOf(File.separator)
